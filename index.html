@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RouteGuard | Management Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <style>
+        :root {
+            --bg: #f3f4f6; --side: #ffffff; --text: #111827; --text2: #6b7280;
+            --accent: #2563eb; --border: #e5e7eb; --green: #10b981;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+        
+        #app { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+        
+        /* Sidebar & Menu */
+        #sidebar { background: var(--side); border-right: 1px solid var(--border); padding: 30px 15px; display: flex; flex-direction: column; }
+        .logo { font-family: 'Syne'; font-weight: 800; font-size: 24px; color: var(--text); margin-bottom: 40px; text-align: center; }
+        .logo span { color: var(--accent); }
+        
+        .menu-item { padding: 12px 16px; border-radius: 8px; cursor: pointer; color: var(--text2); margin-bottom: 5px; font-weight: 600; display: flex; align-items: center; gap: 10px; transition: 0.2s; }
+        .menu-item:hover, .menu-item.active { background: #eff6ff; color: var(--accent); }
+
+        /* Content Area */
+        #main { padding: 40px; height: 100vh; overflow-y: auto; }
+        .page { display: none; animation: fadeIn 0.3s ease; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Components */
+        .card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+        .kpi { background: #fff; border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
+        
+        /* Map Area */
+        #map { width: 100%; height: 500px; border-radius: 12px; border: 1px solid var(--border); }
+        .truck-icon { font-size: 28px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
+        
+        /* Notifications */
+        #msg { position: fixed; bottom: 20px; right: 20px; padding: 15px 25px; border-radius: 8px; background: var(--text); color: white; display: none; z-index: 2000; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+        /* Form */
+        .input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0 20px; outline: none; }
+        .btn { background: var(--accent); color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 12px; font-size: 11px; color: var(--text2); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        td { padding: 15px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="sidebar">
+        <div class="logo">Route<span>Guard</span></div>
+        <div class="menu-item active" onclick="showPage('dashboard')">📊 Dashboard</div>
+        <div class="menu-item" onclick="showPage('new-shipment')">➕ Create Shipment</div>
+        <div class="menu-item" onclick="showPage('driver')">🛣️ Road Tracking</div>
+    </div>
+
+    <div id="main">
+        <section id="page-dashboard" class="page active">
+            <h2 style="margin-bottom: 25px;">Fleet Operations</h2>
+            <div class="kpi-grid">
+                <div class="kpi"><small>Fleet Size</small><h3 id="k-fleet">0</h3></div>
+                <div class="kpi"><small>AI Safety Score</small><h3>98.2%</h3></div>
+                <div class="kpi"><small>Active Disruptions</small><h3 style="color:red">0</h3></div>
+                <div class="kpi"><small>Service Status</small><h3 style="color:green">Online</h3></div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 350px; gap: 20px;">
+                <div class="card">
+                    <h4>📦 Active Manifest</h4>
+                    <table>
+                        <thead><tr><th>ID</th><th>Route</th><th>Risk</th><th>Action</th></tr></thead>
+                        <tbody id="ship-table"></tbody>
+                    </table>
+                </div>
+                <div class="card" style="border-left: 4px solid var(--accent);">
+                    <h4>🤖 Gemini Risk Feed</h4>
+                    <div id="ai-feed" style="font-size: 12px; line-height: 1.6; margin-top: 15px;"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="page-driver" class="page">
+            <div class="card" style="padding: 0; overflow: hidden; position: relative;">
+                <div id="map"></div>
+                <div style="position: absolute; top: 20px; left: 20px; background: white; padding: 15px; border-radius: 8px; z-index: 1000; border: 1px solid var(--border);">
+                    <h4 id="t-id">Route Monitoring</h4>
+                    <p id="t-status" style="font-size: 12px; color: var(--text2);"></p>
+                </div>
+            </div>
+        </section>
+
+        <section id="page-new-shipment" class="page">
+            <div class="card" style="max-width: 450px; margin: 0 auto;">
+                <h3>Register Shipment</h3>
+                <label>Origin City</label><input type="text" id="in-origin" class="input" placeholder="Mumbai">
+                <label>Destination City</label><input type="text" id="in-dest" class="input" placeholder="Delhi">
+                <label>Cargo Type</label><input type="text" id="in-cargo" class="input" placeholder="Electronics">
+                <button class="btn" onclick="createShipment()">Deploy Agent & Analyze</button>
+            </div>
+        </section>
+    </div>
+</div>
+
+<div id="msg"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+<script>
+    const API = "http://localhost:5000/api";
+    let map, routing, truck;
+
+    function notify(text) {
+        const el = document.getElementById('msg');
+        el.innerText = text;
+        el.style.display = 'block';
+        setTimeout(() => el.style.display = 'none', 4000);
+    }
+
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+        document.getElementById(`page-${id}`).classList.add('active');
+        if(id === 'dashboard') fetchAll();
+        if(id === 'driver') initMap();
+    }
+
+    function initMap() {
+        if (map) return;
+        map = L.map('map', {zoomControl: false}).setView([20, 78], 5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+    }
+
+    async function fetchAll() {
+        const res = await fetch(`${API}/shipments`);
+        const data = await res.json();
+        document.getElementById('k-fleet').innerText = data.length;
+        
+        document.getElementById('ship-table').innerHTML = data.map(s => `
+            <tr>
+                <td><b>${s.id}</b></td>
+                <td>${s.origin} → ${s.destination}</td>
+                <td style="color:${s.risk_level==='High'?'red':'green'}">${s.risk_level}</td>
+                <td><button onclick="dispatch('${s.id}',${s.start_lat},${s.start_lng},${s.end_lat},${s.end_lng},'${s.destination}')" style="cursor:pointer; background:var(--accent); color:white; border:none; padding:5px 10px; border-radius:4px;">Track</button></td>
+            </tr>
+        `).join('');
+
+        document.getElementById('ai-feed').innerHTML = data.map(s => `
+            <div style="margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:5px;">
+                <strong>${s.id}:</strong> ${s.disruption_info}
+            </div>
+        `).join('');
+    }
+
+    function dispatch(id, sl, sg, el, eg, dest) {
+        showPage('driver');
+        initMap();
+        if (routing) map.removeControl(routing);
+        if (truck) map.removeLayer(truck);
+
+        routing = L.Routing.control({
+            waypoints: [L.latLng(sl, sg), L.latLng(el, eg)],
+            lineOptions: { styles: [{ color: '#2563eb', weight: 4 }] },
+            createMarker: () => null,
+            addWaypoints: false
+        }).addTo(map);
+
+        truck = L.marker([sl, sg], {icon: L.divIcon({className:'truck-icon', html:'🚚', iconAnchor:[15,15]})}).addTo(map);
+        document.getElementById('t-id').innerText = `ID: ${id}`;
+        document.getElementById('t-status').innerText = `Moving to ${dest}...`;
+
+        routing.on('routesfound', function(e) {
+            const coords = e.routes[0].coordinates;
+            let i = 0;
+            const timer = setInterval(() => {
+                if (i >= coords.length) return clearInterval(timer);
+                truck.setLatLng(coords[i]);
+                i += 5;
+            }, 100);
+            map.fitBounds(L.polyline(coords).getBounds(), {padding:[50,50]});
+        });
+    }
+
+    async function createShipment() {
+    const payload = {
+        id: `RG-${Math.floor(Math.random()*900)+100}`,
+        origin: document.getElementById('in-origin').value,
+        dest: document.getElementById('in-dest').value,
+        cargo: document.getElementById('in-cargo').value
+    };
+
+    try {
+        const res = await fetch(`${API}/shipments`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            notify("✅ " + data.message); // Successful message
+            showPage('dashboard');
+        } else {
+            // This captures database validation or connection errors
+            notify("❌ Error: " + (data.message || "Failed to save to database"));
+            console.error("DB Error Details:", data.error);
+        }
+    } catch (err) {
+        // This captures network/server-down errors
+        notify("📡 Critical Error: Cannot reach the backend server.");
+        console.error("Connection Refused:", err);
+    }
+}
+
+    window.onload = () => showPage('dashboard');
+</script>
+</body>
+</html>
