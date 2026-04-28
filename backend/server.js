@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const db = require('./config/db'); // Ensure this points to your pool connection
 require('dotenv').config();
 
 // Import Routes
@@ -9,41 +10,59 @@ const aiRoutes = require('./routes/aiRoutes');
 const app = express();
 
 // 1. MIDDLEWARE
-// CORS is critical - it allows your index.html file to talk to localhost:5000
 app.use(cors()); 
-
-// Allows Express to read the "body" of POST requests from your frontend
 app.use(express.json());
 
-// Request Logger (Helpful for debugging)
+// Request Logger - Crucial for tracking frontend-to-backend Handshakes
 app.use((req, res, next) => {
-    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} request to ${req.url}`);
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} → ${req.url}`);
     next();
 });
 
-// 2. ROUTES
-// All shipment logic (MySQL)
-app.use('/api/shipments', shipmentRoutes);
+// 2. DATABASE CONNECTIVITY CHECK
+// This ensures the server only stays up if the DB is actually reachable
+const checkDatabase = async () => {
+    try {
+        const connection = await db.getConnection();
+        console.log("✅ DATABASE: MySQL connection pool verified.");
+        connection.release();
+    } catch (err) {
+        console.error("\n❌ DATABASE CONNECTION FAILED!");
+        console.error("Check your .env file and ensure MySQL is running.");
+        console.error("Error Details:", err.message, "\n");
+        // We don't kill the process so you can fix the DB while the server waits
+    }
+};
+checkDatabase();
 
-// All AI logic (Gemini)
+// 3. API ROUTES
+app.use('/api/shipments', shipmentRoutes);
 app.use('/api/ai', aiRoutes);
 
-// 3. BASE ROUTE (To check if server is alive)
+// 4. BASE ROUTE (Health Check)
 app.get('/', (req, res) => {
-    res.send('🚀 RouteGuard Backend is running perfectly!');
+    res.json({
+        status: 'Online',
+        message: '🚀 RouteGuard Backend Command Center is active',
+        timestamp: new Date().toISOString()
+    });
 });
 
-// 4. ERROR HANDLING
+// 5. GLOBAL ERROR HANDLING
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Something went wrong on the server!' });
+    console.error("🔥 SERVER ERROR:", err.stack);
+    res.status(500).json({ 
+        success: false, 
+        error: 'Internal Server Error',
+        details: err.message 
+    });
 });
 
-// 5. START SERVER
+// 6. START SERVER
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`\n=========================================`);
-    console.log(`🚀 RouteGuard Server running on port ${PORT}`);
-    console.log(`📡 API Base URL: http://localhost:${PORT}/api`);
+    console.log(`🚀 RouteGuard Server: http://localhost:${PORT}`);
+    console.log(`📡 Endpoints: /api/shipments , /api/ai`);
     console.log(`=========================================\n`);
 });
